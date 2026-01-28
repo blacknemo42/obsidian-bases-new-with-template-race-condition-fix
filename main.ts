@@ -18,8 +18,7 @@ export default class BasesTemplatePlugin extends Plugin {
         this.app.vault.on("create", async (file: TFile) => {
           if (!file.basename.startsWith("Untitled")) return;
 
-          await new Promise((r) => setTimeout(r, 150));
-
+          await new Promise((resolve) => setTimeout(resolve, 150));
           const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
           if (!fm) return;
 
@@ -27,27 +26,24 @@ export default class BasesTemplatePlugin extends Plugin {
           if (!value) return;
 
           const values = Array.isArray(value) ? value : [value];
-          const activeLeaf = this.app.workspace.getMostRecentLeaf();
 
-          const templatesPlugin =
-            (this.app as any).internalPlugins.plugins.templates;
-          const templaterPlugin =
-            (this.app as any).plugins.plugins["templater-obsidian"];
+          const templatesPlugin = (this.app as any).internalPlugins.plugins.templates;
+          const templaterPlugin = (this.app as any).plugins.plugins["templater-obsidian"];
 
           const templatesEnabled = !!templatesPlugin?.enabled;
           const templaterEnabled = !!templaterPlugin;
 
-          const templateFolder =
-            templatesPlugin?.instance?.options?.folder?.toLowerCase();
-          const templaterFolder =
-            templaterPlugin?.settings?.templates_folder?.toLowerCase();
+          const templateFolder = templatesPlugin?.instance?.options?.folder?.toLowerCase();
+          const templaterFolder = templaterPlugin?.settings?.templates_folder?.toLowerCase();
 
-          const duplicatePluginDetected =
-            templatesEnabled &&
+          const preferTemplater =
             templaterEnabled &&
+            templatesEnabled &&
             templateFolder &&
             templaterFolder &&
             templateFolder === templaterFolder;
+
+          const activeLeaf = this.app.workspace.getMostRecentLeaf();
 
           for (const item of values) {
             if (typeof item !== "string") continue;
@@ -55,62 +51,33 @@ export default class BasesTemplatePlugin extends Plugin {
             const link = item.match(/\[\[(.*?)\]\]/)?.[1];
             if (!link) continue;
 
-            const templateFile =
-              this.app.metadataCache.getFirstLinkpathDest(link, file.path);
+            const templateFile = this.app.metadataCache.getFirstLinkpathDest(link, file.path);
             if (!templateFile) continue;
 
-            const templatePath = templateFile.path.toLowerCase();
+            const path = templateFile.path.toLowerCase();
 
             if (
-              duplicatePluginDetected &&
               templaterEnabled &&
               templaterFolder &&
-              templatePath.startsWith(templaterFolder)
+              path.startsWith(templaterFolder) &&
+              (preferTemplater || !templatesEnabled)
             ) {
-              const processed = await processTemplate(
-                this.app,
-                templateFile,
-              );
+              const processed = await processTemplate(this.app, templateFile, file);
               if (processed) {
                 await this.app.vault.modify(file, processed);
               }
               continue;
             }
-            
-            if (
-              templatesEnabled &&
-              templateFolder &&
-              templatePath.startsWith(templateFolder)
-            ) {
+
+            // Use Core Templates only if safe
+            if (templatesEnabled && templateFolder && path.startsWith(templateFolder)) {
               if (activeLeaf === this.app.workspace.getMostRecentLeaf()) {
                 await this.app.workspace.openLinkText(file.path, "", false);
               }
-
               await templatesPlugin.instance.insertTemplate(templateFile);
-              await new Promise((r) => setTimeout(r, 100));
-              continue;
-            }
-
-            if (
-              templaterEnabled &&
-              templaterFolder &&
-              templatePath.startsWith(templaterFolder)
-            ) {
-              const processed = await processTemplate(
-                this.app,
-                templateFile,
-              );
-              if (processed) {
-                await this.app.vault.modify(file, processed);
-              }
             }
           }
-
-          const newLeaf = this.app.workspace.getMostRecentLeaf();
-          if (activeLeaf && newLeaf && activeLeaf !== newLeaf) {
-            newLeaf.detach();
-          }
-        }),
+        })
       );
     });
   }
